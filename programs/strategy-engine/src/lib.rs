@@ -16,3 +16,14 @@ pub mod strategy_engine {
 
 #[derive(Accounts)]
 pub struct Initialize {}
+
+// #[cfg(test)]
+// mod test_smoke {
+//     use super::logic::conditions::*;
+
+//     #[test]
+//     fn test_force_include() {
+//         // Just force the module to compile
+//         let _ = ConditionBuilder::price_above(Default::default(), 42).build();
+//     }
+// }
