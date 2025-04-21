@@ -38,6 +38,7 @@ impl Condition {
     }
 }
 
+#[derive(Clone)]
 pub struct ConditionBuilder {
     condition: Condition,
 }
@@ -76,6 +77,7 @@ impl ConditionBuilder {
     }
 }
 
+// run `cargo clean`` and then `cargo test` to run the tests
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -95,21 +97,65 @@ mod tests {
     }
 
     #[test]
-    fn test_evaluate_condition_tree() {
+    fn test_evaluate_not() {
         let token = Pubkey::new_unique();
-        let strategy = ConditionBuilder::not(ConditionBuilder::price_above(token, 100))
-            .and(ConditionBuilder::price_below(token, 200))
-            .build();
+
+        // NOT (price > 100)
+        let condition = ConditionBuilder::not(ConditionBuilder::price_above(token, 100)).build();
 
         let mut prices = HashMap::new();
         prices.insert(token, 150);
 
-        let context = EvaluationContext {
-            token_prices: prices,
+        let mut context = EvaluationContext {
+            token_prices: prices.clone(),
+        };
+        assert_eq!(condition.evaluate(&context), false);
+        // now change the price to 50
+        prices.insert(token, 50);
+        context.token_prices = prices;
+        assert_eq!(condition.evaluate(&context), true);
+    }
+
+    #[test]
+    fn test_evaluate_and() {
+        let token = Pubkey::new_unique();
+        // Condition (price > 100) AND (price < 400)
+        let condition_1_prebuilt = ConditionBuilder::price_above(token, 100)
+            .and(ConditionBuilder::price_below(token, 400));
+
+        let mut prices = HashMap::new();
+        prices.insert(token, 150);
+
+        let mut context = EvaluationContext {
+            token_prices: prices.clone(),
         };
 
-        // price > 100 AND price < 200 -> true
-        assert_eq!(strategy.evaluate(&context), false);
+        let condition_1 = condition_1_prebuilt.clone().build();
+        assert_eq!(condition_1.evaluate(&context), true);
+
+        let condition_2 = ConditionBuilder::not(condition_1_prebuilt).build();
+        assert_eq!(condition_2.evaluate(&context), false);
+    }
+
+    #[test]
+    fn test_evaluate_or() {
+        let token = Pubkey::new_unique();
+        // Condition (price < 100) OR (price > 400)
+        let condition_1_prebuilt =
+            ConditionBuilder::price_below(token, 100).or(ConditionBuilder::price_above(token, 400));
+
+        let mut prices = HashMap::new();
+        prices.insert(token, 150);
+
+        let mut context = EvaluationContext {
+            token_prices: prices.clone(),
+        };
+
+        let condition_1 = condition_1_prebuilt.clone().build();
+        assert_eq!(condition_1.evaluate(&context), false);
+
+        let condition_2 = ConditionBuilder::not(condition_1_prebuilt).build();
+        assert_eq!(condition_2.evaluate(&context), true);
     }
 
     #[test]
