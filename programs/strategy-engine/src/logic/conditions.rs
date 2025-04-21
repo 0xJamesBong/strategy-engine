@@ -5,25 +5,42 @@ pub struct EvaluationContext {
     pub token_prices: HashMap<Pubkey, u64>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, PartialEq)]
 pub enum AtomicCondition {
     // Price-based conditions
     PriceAbove { token: Pubkey, price: u64 },
     PriceBelow { token: Pubkey, price: u64 },
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub enum Condition {
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, PartialEq)]
+pub enum ConditionType {
     Atomic(AtomicCondition),
-    And(Box<Condition>, Box<Condition>),
-    Or(Box<Condition>, Box<Condition>),
-    Not(Box<Condition>),
+    And { left: u8, right: u8 }, // And(Box<Condition>, Box<Condition>),
+    Or { left: u8, right: u8 },  // Or(Box<Condition>, Box<Condition>),
+    Not { child: u8 },           // Not(Box<Condition>),
 }
 
-impl Condition {
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, PartialEq)]
+pub struct ConditionNode {
+    pub condition_type: ConditionType,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, PartialEq)]
+pub struct ConditionTree {
+    pub nodes: Vec<ConditionNode>,
+    pub root_index: u8,
+}
+
+impl ConditionTree {
     pub fn evaluate(&self, ctx: &EvaluationContext) -> bool {
-        match self {
-            Condition::Atomic(atomic) => match atomic {
+        self.evaluate_node(self.root_index, ctx)
+    }
+
+    pub fn evaluate_node(&self, index: u8, ctx: &EvaluationContext) -> bool {
+        // evaluate this node at index number `index`
+        let node = &self.nodes[index as usize];
+        match &node.condition_type {
+            ConditionType::Atomic(atomic) => match atomic {
                 AtomicCondition::PriceAbove { token, price } => {
                     ctx.token_prices.get(token).map_or(false, |p| p > price)
                 }
@@ -31,49 +48,119 @@ impl Condition {
                     ctx.token_prices.get(token).map_or(false, |p| p < price)
                 }
             },
-            Condition::And(left, right) => left.evaluate(ctx) && right.evaluate(ctx),
-            Condition::Or(left, right) => left.evaluate(ctx) || right.evaluate(ctx),
-            Condition::Not(inner) => !inner.evaluate(ctx),
+            ConditionType::And { left, right } => {
+                self.evaluate_node(*left, ctx) && self.evaluate_node(*right, ctx)
+            }
+            ConditionType::Or { left, right } => {
+                self.evaluate_node(*left, ctx) || self.evaluate_node(*right, ctx)
+            }
+            ConditionType::Not { child } => !self.evaluate_node(*child, ctx),
         }
     }
 }
 
 #[derive(Clone)]
 pub struct ConditionBuilder {
-    condition: Condition,
+    nodes: Vec<ConditionNode>,
+    root_index: u8,
 }
 
 impl ConditionBuilder {
+    pub fn new() -> Self {
+        Self {
+            nodes: vec![],
+            root_index: 0,
+        }
+    }
+
+    fn with_node(mut self, node: ConditionNode) -> Self {
+        let index = self.nodes.len() as u8;
+        self.nodes.push(node);
+        self.root_index = index;
+        self
+    }
+
     pub fn price_above(token: Pubkey, price: u64) -> Self {
-        Self {
-            condition: Condition::Atomic(AtomicCondition::PriceAbove { token, price }),
-        }
+        Self::new().with_node(ConditionNode {
+            condition_type: ConditionType::Atomic(AtomicCondition::PriceAbove { token, price }),
+        })
     }
+
     pub fn price_below(token: Pubkey, price: u64) -> Self {
-        Self {
-            condition: Condition::Atomic(AtomicCondition::PriceBelow { token, price }),
-        }
+        Self::new().with_node(ConditionNode {
+            condition_type: ConditionType::Atomic(AtomicCondition::PriceBelow { token, price }),
+        })
     }
-    pub fn and(self, other: ConditionBuilder) -> Self {
+
+    pub fn and(mut self, mut other: Self) -> Self {
+        /*  store the root indexes of the two subtrees self and other
+         * These indces point to the "top" node of each tree, and they will
+         * become the left and right children of the new And node
+         */
+        let left = self.root_index;
+        let right = other.root_index;
+
+        /* we create a new nodes vector and append all nodes from self and other into it.
+         * append(0 oves the contents from the original vectors into nodes)
+         */
+        let mut nodes = vec![];
+        nodes.append(&mut self.nodes);
+        nodes.append(&mut other.nodes);
+
+        /* This determines the index of the new root node (which will be added next).
+         * Since indexing starts at 0, the next node will be at position nodes.len().
+         */
+
+        let root = nodes.len() as u8;
+        nodes.push(ConditionNode {
+            condition_type: ConditionType::And { left, right },
+        });
+
         Self {
-            condition: Condition::And(Box::new(self.condition), Box::new(other.condition)),
+            nodes,
+            root_index: root,
         }
     }
 
-    pub fn or(self, other: ConditionBuilder) -> Self {
+    pub fn or(mut self, mut other: Self) -> Self {
+        let left = self.root_index;
+        let right = other.root_index;
+
+        let mut nodes = vec![];
+        nodes.append(&mut self.nodes);
+        nodes.append(&mut other.nodes);
+
+        let root = nodes.len() as u8;
+        nodes.push(ConditionNode {
+            condition_type: ConditionType::Or { left, right },
+        });
+
         Self {
-            condition: Condition::Or(Box::new(self.condition), Box::new(other.condition)),
+            nodes,
+            root_index: root,
         }
     }
 
-    pub fn not(inner: ConditionBuilder) -> Self {
+    pub fn not(mut self) -> Self {
+        let child = self.root_index;
+        let mut nodes = vec![];
+        nodes.append(&mut self.nodes);
+
+        let root = nodes.len() as u8;
+        nodes.push(ConditionNode {
+            condition_type: ConditionType::Not { child },
+        });
         Self {
-            condition: Condition::Not(Box::new(inner.condition)),
+            nodes,
+            root_index: root,
         }
     }
 
-    pub fn build(self) -> Condition {
-        self.condition
+    pub fn build(self) -> ConditionTree {
+        ConditionTree {
+            nodes: self.nodes,
+            root_index: self.root_index,
+        }
     }
 }
 

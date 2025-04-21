@@ -1,18 +1,18 @@
 use crate::logic::actions::Action;
-use crate::logic::conditions::Condition;
+use crate::logic::conditions::ConditionTree;
 use anchor_lang::prelude::*;
 
 use super::conditions::EvaluationContext;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Strategy {
-    pub condition: Condition,
+    pub condition: ConditionTree,
     pub action: Action,
     pub execute_every_seconds: u64,
 }
 
 impl Strategy {
-    pub fn new(condition: Condition, action: Action, execute_every_seconds: u64) -> Self {
+    pub fn new(condition: ConditionTree, action: Action, execute_every_seconds: u64) -> Self {
         Self {
             condition,
             action,
