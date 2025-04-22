@@ -1,6 +1,8 @@
 use crate::logic::actions::Action;
 use crate::logic::conditions::ConditionTree;
+
 use anchor_lang::prelude::*;
+use std::collections::HashMap;
 
 use super::conditions::EvaluationContext;
 
@@ -56,5 +58,15 @@ impl Vault {
         } else {
             false
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_strategy_execute() {
+        let token = Pubkey::default();
     }
 }
