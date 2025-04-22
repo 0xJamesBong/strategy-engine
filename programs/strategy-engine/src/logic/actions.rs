@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, PartialEq)]
 pub enum AtomicAction {
     Buy { token: Pubkey, amount: u64 },
     Sell { token: Pubkey, amount: u64 },
@@ -10,16 +10,33 @@ pub enum AtomicAction {
     Redeem { token: Pubkey, amount: u64 },
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub enum Action {
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, PartialEq)]
+pub enum ActionType {
     Atomic(AtomicAction),
-    And(Box<Action>, Box<Action>),
+    // And(Box<Action>, Box<Action>),
+    And { left: u8, right: u8 },
 }
 
-impl Action {
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, PartialEq)]
+pub struct ActionNode {
+    pub action_type: ActionType,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, PartialEq)]
+pub struct ActionTree {
+    pub nodes: Vec<ActionNode>,
+    pub root_index: u8,
+}
+
+impl ActionTree {
     pub fn execute(&self) -> bool {
-        match self {
-            Action::Atomic(atomic) => match atomic {
+        self.execute_node(self.root_index)
+    }
+    pub fn execute_node(&self, index: u8) -> bool {
+        let node = &self.nodes[index as usize];
+
+        match &node.action_type {
+            ActionType::Atomic(atomic) => match atomic {
                 AtomicAction::Buy { token, amount } => {
                     msg!("Buying {} of {}", amount, token);
                     true
@@ -45,60 +62,103 @@ impl Action {
                     true
                 }
             },
-            Action::And(left, right) => left.execute() && right.execute(),
+
+            ActionType::And { left, right } => {
+                self.execute_node(*left) && self.execute_node(*right)
+            }
         }
     }
 }
 
 pub struct ActionBuilder {
-    action: Action,
+    nodes: Vec<ActionNode>,
+    root_index: u8,
 }
 
 impl ActionBuilder {
-    pub fn buy(token: Pubkey, amount: u64) -> Self {
+    pub fn new() -> Self {
         Self {
-            action: Action::Atomic(AtomicAction::Buy { token, amount }),
+            nodes: vec![],
+            root_index: 0,
         }
+    }
+
+    fn with_node(mut self, node: ActionNode) -> Self {
+        let index: u8 = self.nodes.len() as u8;
+        self.nodes.push(node);
+        self.root_index = index;
+        self
+    }
+
+    fn buy(token: Pubkey, amount: u64) -> Self {
+        Self::new().with_node(ActionNode {
+            action_type: ActionType::Atomic(AtomicAction::Buy { token, amount }),
+        })
     }
 
     pub fn sell(token: Pubkey, amount: u64) -> Self {
-        Self {
-            action: Action::Atomic(AtomicAction::Sell { token, amount }),
-        }
+        Self::new().with_node(ActionNode {
+            action_type: ActionType::Atomic(AtomicAction::Sell { token, amount }),
+        })
     }
 
     pub fn borrow(token: Pubkey, amount: u64) -> Self {
-        Self {
-            action: Action::Atomic(AtomicAction::Borrow { token, amount }),
-        }
+        Self::new().with_node(ActionNode {
+            action_type: ActionType::Atomic(AtomicAction::Borrow { token, amount }),
+        })
     }
 
     pub fn repay(token: Pubkey, amount: u64) -> Self {
-        Self {
-            action: Action::Atomic(AtomicAction::Repay { token, amount }),
-        }
+        Self::new().with_node(ActionNode {
+            action_type: ActionType::Atomic(AtomicAction::Repay {
+                token: token,
+                amount,
+            }),
+        })
     }
 
     pub fn lend(token: Pubkey, amount: u64) -> Self {
-        Self {
-            action: Action::Atomic(AtomicAction::Lend { token, amount }),
-        }
+        Self::new().with_node(ActionNode {
+            action_type: ActionType::Atomic(AtomicAction::Lend {
+                token: token,
+                amount,
+            }),
+        })
     }
 
     pub fn redeem(token: Pubkey, amount: u64) -> Self {
+        Self::new().with_node(ActionNode {
+            action_type: ActionType::Atomic(AtomicAction::Redeem {
+                token: token,
+                amount,
+            }),
+        })
+    }
+
+    pub fn and(mut self, mut child: Self) -> Self {
+        let left: u8 = self.root_index;
+        let right: u8 = child.root_index;
+
+        let mut nodes = vec![];
+        nodes.append(&mut self.nodes);
+        nodes.append(&mut child.nodes);
+
+        let root = nodes.len() as u8;
+        nodes.push(ActionNode {
+            action_type: ActionType::And { left, right },
+        });
+
         Self {
-            action: Action::Atomic(AtomicAction::Redeem { token, amount }),
+            nodes,
+            root_index: root,
         }
     }
 
-    pub fn and(self, other: ActionBuilder) -> Self {
-        Self {
-            action: Action::And(Box::new(self.action), Box::new(other.action)),
+    pub fn build(self) -> ActionTree {
+        ActionTree {
+            nodes: self.nodes,
+            root_index: self.root_index,
         }
-    }
-
-    pub fn build(self) -> Action {
-        self.action
     }
 }
 

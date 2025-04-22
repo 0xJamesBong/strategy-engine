@@ -2,6 +2,7 @@ use crate::logic::actions::Action;
 use crate::logic::conditions::ConditionTree;
 
 use anchor_lang::prelude::*;
+
 use std::collections::HashMap;
 
 use super::conditions::EvaluationContext;
@@ -21,6 +22,17 @@ impl Strategy {
             execute_every_seconds,
         }
     }
+}
+
+// all fields must be serializable with AnchorSerialize/AnchorDeserialize
+#[account]
+pub struct VaultAccount {
+    pub authority: Pubkey, // the creator of the vault
+    pub condition_tree: ConditionTree,
+    pub action: Action,
+    pub execute_every_seconds: u64,
+    pub balance: u64,
+    pub last_executed: u64, // timestamp of the last execution
 }
 
 #[derive(Clone, Debug, PartialEq)]
