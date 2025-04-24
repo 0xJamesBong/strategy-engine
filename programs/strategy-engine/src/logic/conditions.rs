@@ -36,6 +36,14 @@ impl ConditionTree {
         self.evaluate_node(self.root_index, ctx)
     }
 
+    pub fn size(&self) -> usize {
+        // // 8 bytes for discriminator + 1 byte for root_index + nodes size
+        // 8 + 1 + (self.nodes.len() * std::mem::size_of::<ConditionNode>())
+        let mut buf = Vec::new();
+        self.serialize(&mut buf).unwrap();
+        buf.len()
+    }
+
     pub fn evaluate_node(&self, index: u8, ctx: &EvaluationContext) -> bool {
         // evaluate this node at index number `index`
         let node = &self.nodes[index as usize];

@@ -32,6 +32,16 @@ impl ActionTree {
     pub fn execute(&self) -> bool {
         self.execute_node(self.root_index)
     }
+
+    pub fn size(&self) -> usize {
+        // // 8 bytes for discriminator + 1 byte for root_index + nodes size
+        // 8 + 1 + (self.nodes.len() * std::mem::size_of::<ActionNode>())
+
+        let mut buf = Vec::new();
+        self.serialize(&mut buf).unwrap();
+        buf.len()
+    }
+
     pub fn execute_node(&self, index: u8) -> bool {
         let node = &self.nodes[index as usize];
 

@@ -24,17 +24,6 @@ impl Strategy {
     }
 }
 
-// all fields must be serializable with AnchorSerialize/AnchorDeserialize
-#[account]
-pub struct VaultAccount {
-    pub authority: Pubkey, // the creator of the vault
-    pub condition_tree: ConditionTree,
-    pub action: ActionTree,
-    pub execute_every_seconds: u64,
-    pub balance: u64,
-    pub last_executed: u64, // timestamp of the last execution
-}
-
 #[derive(Clone, Debug, PartialEq)]
 pub struct Vault {
     pub strategy: Strategy,
