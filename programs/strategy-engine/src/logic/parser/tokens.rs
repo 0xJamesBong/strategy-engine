@@ -1,6 +1,7 @@
 use anchor_lang::prelude::*;
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
+use std::str::FromStr;
 
 pub const ACTION_KEYWORDS: &[&str] = &[
     "BUY", "SELL", "BORROW", "REPAY", "LEND", "REDEEM", "(", ")", ",",
@@ -16,8 +17,9 @@ pub enum ConditionToken {
     Comma,
     PriceAbove,
     PriceBelow,
-    Pubkey(String),
+    Pubkey(Pubkey),
     Number(u64),
+    Invalid(String),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -31,9 +33,12 @@ pub enum ActionToken {
     LParen,
     RParen,
     Comma,
-    Pubkey(String),
+    Pubkey(Pubkey),
     Number(u64),
+    Invalid(String),
 }
+
+// EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v = usdc
 
 pub static CONDITION_TOKEN_MAP: Lazy<HashMap<&'static str, ConditionToken>> = Lazy::new(|| {
     HashMap::from([
@@ -47,6 +52,26 @@ pub static CONDITION_TOKEN_MAP: Lazy<HashMap<&'static str, ConditionToken>> = La
         ("PRICE_BELOW", ConditionToken::PriceBelow),
     ])
 });
+
+// use std::fmt;
+// impl fmt::Display for ConditionToken {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+//         let s = match self {
+//             ConditionToken::And => "AND",
+//             ConditionToken::Or => "OR",
+//             ConditionToken::Not => "NOT",
+//             ConditionToken::LParen => "(",
+//             ConditionToken::RParen => ")",
+//             ConditionToken::Comma => ",",
+//             ConditionToken::PriceAbove => "PRICE_ABOVE",
+//             ConditionToken::PriceBelow => "PRICE_BELOW",
+//             ConditionToken::Pubkey(pk) => pk.to_string().as_str(),
+//             ConditionToken::Number(n) => n.to_string().as_str(),
+//             ConditionToken::Invalid(s) => s.as_str(),
+//         };
+//         write!(f, "{}", s)
+//     }
+// }
 
 pub static ACTION_TOKEN_MAP: Lazy<HashMap<&'static str, ActionToken>> = Lazy::new(|| {
     HashMap::from([
@@ -70,7 +95,11 @@ impl ConditionToken {
         if let Ok(num) = s.parse::<u64>() {
             return ConditionToken::Number(num);
         }
-        ConditionToken::Pubkey(s.to_string())
+        if let Ok(pk) = Pubkey::from_str(s) {
+            return ConditionToken::Pubkey(pk);
+        }
+
+        ConditionToken::Invalid(s.to_string())
     }
 
     pub fn from_keyword_to_token(s: &str) -> Option<Self> {
@@ -86,7 +115,11 @@ impl ActionToken {
         if let Ok(num) = s.parse::<u64>() {
             return ActionToken::Number(num);
         }
-        ActionToken::Pubkey(s.to_string())
+        if let Ok(pk) = Pubkey::from_str(s) {
+            return ActionToken::Pubkey(pk);
+        }
+
+        ActionToken::Invalid(s.to_string())
     }
     pub fn from_keyword_to_token(s: &str) -> Option<Self> {
         ACTION_TOKEN_MAP.get(s).cloned()
@@ -100,6 +133,19 @@ mod tests {
     fn test_condition_token_parse() {
         let token = ConditionToken::parse_token_or_arg("PRICE_ABOVE");
         assert_eq!(token, ConditionToken::PriceAbove);
+    }
+    #[test]
+    fn test_action_token_parse() {
+        let token = ActionToken::parse_token_or_arg("BUY");
+        assert_eq!(token, ActionToken::Buy);
+    }
+
+    #[test]
+    fn test_condition_token_from_keyword_to_token() {
+        let asset_str = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+        let pk = Pubkey::from_str(asset_str).unwrap();
+        let token = ConditionToken::parse_token_or_arg(&asset_str);
+        assert_eq!(token, Some(ConditionToken::Pubkey(pk)).unwrap());
     }
 }
 

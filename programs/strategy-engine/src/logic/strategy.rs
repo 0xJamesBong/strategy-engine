@@ -62,12 +62,12 @@ impl Vault {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+// #[cfg(test)]
+// mod tests {
+//     use super::*;
 
-    #[test]
-    fn test_strategy_execute() {
-        let token = Pubkey::default();
-    }
-}
+//     #[test]
+//     fn test_strategy_execute() {
+//         let token = Pubkey::default();
+//     }
+// }

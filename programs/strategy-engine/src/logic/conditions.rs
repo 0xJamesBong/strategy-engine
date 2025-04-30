@@ -12,6 +12,19 @@ pub enum AtomicCondition {
     PriceBelow { token: Pubkey, price: u64 },
 }
 
+impl std::fmt::Display for AtomicCondition {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AtomicCondition::PriceAbove { token, price } => {
+                write!(f, "PRICE_ABOVE({}, {})", token, price)
+            }
+            AtomicCondition::PriceBelow { token, price } => {
+                write!(f, "PRICE_BELOW({}, {})", token, price)
+            }
+        }
+    }
+}
+
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, PartialEq)]
 pub enum ConditionType {
     Atomic(AtomicCondition),
@@ -65,9 +78,34 @@ impl ConditionTree {
             ConditionType::Not { child } => !self.evaluate_node(*child, ctx),
         }
     }
+
+    pub fn to_string_expr(&self) -> String {
+        self.string_node(self.root_index)
+    }
+
+    fn string_node(&self, index: u8) -> String {
+        let node = &self.nodes[index as usize];
+        match &node.condition_type {
+            ConditionType::Atomic(atomic) => format!("{}", atomic),
+            ConditionType::And { left, right } => {
+                let l = self.string_node(*left);
+                let r = self.string_node(*right);
+                format!("({} AND {})", l, r)
+            }
+            ConditionType::Or { left, right } => {
+                let l = self.string_node(*left);
+                let r = self.string_node(*right);
+                format!("({} OR {})", l, r)
+            }
+            ConditionType::Not { child } => {
+                let c = self.string_node(*child);
+                format!("NOT{}", c)
+            }
+        }
+    }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ConditionBuilder {
     nodes: Vec<ConditionNode>,
     root_index: u8,
@@ -101,23 +139,28 @@ impl ConditionBuilder {
     }
 
     pub fn and(mut self, mut other: Self) -> Self {
-        /*  store the root indexes of the two subtrees self and other
-         * These indces point to the "top" node of each tree, and they will
-         * become the left and right children of the new And node
-         */
-        let left = self.root_index;
-        let right = other.root_index;
+        let offset = self.nodes.len() as u8;
 
-        /* we create a new nodes vector and append all nodes from self and other into it.
-         * append(0 oves the contents from the original vectors into nodes)
-         */
+        // shift other’s node indices
+        for node in &mut other.nodes {
+            match &mut node.condition_type {
+                ConditionType::And { left, right } | ConditionType::Or { left, right } => {
+                    *left += offset;
+                    *right += offset;
+                }
+                ConditionType::Not { child } => {
+                    *child += offset;
+                }
+                _ => {}
+            }
+        }
+
+        let left = self.root_index;
+        let right = other.root_index + offset;
+
         let mut nodes = vec![];
         nodes.append(&mut self.nodes);
         nodes.append(&mut other.nodes);
-
-        /* This determines the index of the new root node (which will be added next).
-         * Since indexing starts at 0, the next node will be at position nodes.len().
-         */
 
         let root = nodes.len() as u8;
         nodes.push(ConditionNode {
@@ -129,10 +172,52 @@ impl ConditionBuilder {
             root_index: root,
         }
     }
+    // pub fn and(mut self, mut other: Self) -> Self {
+    //     /*  store the root indexes of the two subtrees self and other
+    //      * These indces point to the "top" node of each tree, and they will
+    //      * become the left and right children of the new And node
+    //      */
+    //     let left = self.root_index;
+    //     let right = other.root_index;
+
+    //     /* we create a new nodes vector and append all nodes from self and other into it.
+    //      * append(0 oves the contents from the original vectors into nodes)
+    //      */
+    //     let mut nodes = vec![];
+    //     nodes.append(&mut self.nodes);
+    //     nodes.append(&mut other.nodes);
+
+    //     /* This determines the index of the new root node (which will be added next).
+    //      * Since indexing starts at 0, the next node will be at position nodes.len().
+    //      */
+    //     let root = nodes.len() as u8;
+    //     nodes.push(ConditionNode {
+    //         condition_type: ConditionType::And { left, right },
+    //     });
+
+    //     Self {
+    //         nodes,
+    //         root_index: root,
+    //     }
+    // }
 
     pub fn or(mut self, mut other: Self) -> Self {
+        let offset = self.nodes.len() as u8;
+        // shift other's node indices
+        for node in &mut other.nodes {
+            match &mut node.condition_type {
+                ConditionType::And { left, right } | ConditionType::Or { left, right } => {
+                    *left += offset;
+                    *right += offset;
+                }
+                ConditionType::Not { child } => {
+                    *child += offset;
+                }
+                _ => {}
+            }
+        }
         let left = self.root_index;
-        let right = other.root_index;
+        let right = other.root_index + offset;
 
         let mut nodes = vec![];
         nodes.append(&mut self.nodes);
@@ -149,19 +234,51 @@ impl ConditionBuilder {
         }
     }
 
+    // pub fn or(mut self, mut other: Self) -> Self {
+    //     let left = self.root_index;
+    //     let right = other.root_index;
+
+    //     let mut nodes = vec![];
+    //     nodes.append(&mut self.nodes);
+    //     nodes.append(&mut other.nodes);
+
+    //     let root = nodes.len() as u8;
+    //     nodes.push(ConditionNode {
+    //         condition_type: ConditionType::Or { left, right },
+    //     });
+
+    //     Self {
+    //         nodes,
+    //         root_index: root,
+    //     }
+    // }
+
     pub fn not(mut self) -> Self {
         let child = self.root_index;
         let mut nodes = vec![];
-        nodes.append(&mut self.nodes);
+        nodes.append(&mut self.nodes); // no offset needed; all indices are local
 
         let root = nodes.len() as u8;
         nodes.push(ConditionNode {
             condition_type: ConditionType::Not { child },
         });
+
         Self {
             nodes,
             root_index: root,
         }
+        // let child = self.root_index;
+        // let mut nodes = vec![];
+        // nodes.append(&mut self.nodes);
+
+        // let root = nodes.len() as u8;
+        // nodes.push(ConditionNode {
+        //     condition_type: ConditionType::Not { child },
+        // });
+        // Self {
+        //     nodes,
+        //     root_index: root,
+        // }
     }
 
     pub fn build(self) -> ConditionTree {
@@ -172,6 +289,7 @@ impl ConditionBuilder {
     }
 }
 
+// "NOT (PRICE_ABOVE(token1,100) AND PRICE_BELOW(token1,200)) OR PRICE_ABOVE(token1,400)"
 // run `cargo clean`` and then `cargo test` to run the tests
 #[cfg(test)]
 mod tests {
@@ -281,5 +399,20 @@ mod tests {
         let condition3 = ConditionBuilder::price_above(token, 100).build();
 
         assert!(condition3.evaluate(&context));
+    }
+
+    #[test]
+    fn test_to_string_expr() {
+        let token = Pubkey::new_unique();
+
+        let tree = ConditionBuilder::not(
+            ConditionBuilder::price_above(token, 100)
+                .and(ConditionBuilder::price_below(token, 200)),
+        )
+        .or(ConditionBuilder::price_above(token, 400))
+        .build();
+
+        let expr = tree.to_string_expr();
+        println!("{}", expr);
     }
 }
